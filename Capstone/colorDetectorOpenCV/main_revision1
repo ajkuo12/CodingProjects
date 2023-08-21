@@ -1,0 +1,171 @@
+# Import Libraries
+import cv2
+import numpy as np
+import time
+import serial
+import json
+
+# Establish serial communication with ESP32
+#serial_port = serial.Serial('serialPort', 115200)
+
+# HSV Color (Red and Green)
+
+# Red
+lower_red = np.array([0, 100, 100])
+upper_red = np.array([15, 255, 255])
+lower_red2 = np.array([165, 100, 100])
+upper_red2 = np.array([179, 255, 255])
+# Green
+lower_green = np.array([29, 15, 35])
+upper_green = np.array([50, 255, 255])
+
+# Timestamp Array
+timestamps = []
+
+# Initialize the webcam and time
+cap = cv2.VideoCapture(0)
+start_time = time.time()
+
+# ESP32-Cam URL
+#URL = "http://192.168.1.144"
+#AWB = True
+#cap = cv2.VideoCapture(URL + ":81/stream")
+
+# Initialize object counts and statuses
+red_object_count = 0
+red_object_status = []
+green_object_count = 0
+green_object_status = []
+
+# Number of frames an object should be absent before incrementing the count
+absent_frames_threshold = 100
+frames_since_last_detection_red = 0
+frames_since_last_detection_green = 0
+
+# Loop
+while True:
+    # Read the frame from the webcam
+    ret, frame = cap.read()
+
+    if not ret:
+        break
+
+    # Convert the frame to HSV color space
+    hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    # Create a mask for red and green objects
+    red_mask1 = cv2.inRange(hsv_frame, lower_red, upper_red)
+    red_mask2 = cv2.inRange(hsv_frame, lower_red2, upper_red2)
+    red_mask_combined = cv2.bitwise_or(red_mask1, red_mask2)
+    green_mask = cv2.inRange(hsv_frame, lower_green, upper_green)
+
+    # Find contours of red and green objects
+    red_contours, _ = cv2.findContours(red_mask_combined, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    green_contours, _ = cv2.findContours(green_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Update object statuses for current frame
+    current_red_status = [False] * len(red_object_status)
+    current_green_status = [False] * len(green_object_status)
+
+    # Look for red objects
+    for i, contour in enumerate(red_contours):
+        # Calculate area of each red contour
+        area = cv2.contourArea(contour)
+
+        # Get bounding rectangle of  contour
+        x, y, w, h = cv2.boundingRect(contour)
+
+        # Check if bounding rectangle is entirely within  frame
+        if x > 0 and y > 0 and x + w < frame.shape[1] and y + h < frame.shape[0]:
+            # If the area is above a certain threshold, consider it a red object
+            if area > 80000:
+                # Check if object was previously on screen
+                if i < len(red_object_status) and red_object_status[i]:
+                    current_red_status[i] = True
+                # Otherwise, count as new
+                else:
+                    current_red_status.append(True)
+
+                # Draw a bounding box around red object
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
+        else:
+            current_red_status.append(False)
+
+    # Look for green objects
+    for i, contour in enumerate(green_contours):
+        # Calculate area of each green contour
+        area = cv2.contourArea(contour)
+
+        # Get bounding rectangle of contour
+        x, y, w, h = cv2.boundingRect(contour)
+
+        # Check if bounding rectangle is entirely within frame
+        if x > 0 and y > 0 and x + w < frame.shape[1] and y + h < frame.shape[0]:
+            # If area is above a certain threshold, consider it a green object
+            if area > 80000:
+                # Check if object was previously on screen
+                if i < len(green_object_status) and green_object_status[i]:
+                        current_green_status[i] = True
+                # Otherwise, count as new object
+                else:
+                    current_green_status.append(True)
+                    
+                # Draw bounding box around green object
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+        else:
+            current_green_status.append(False)           
+
+    # Update object status and counts
+    red_object_status = current_red_status
+    green_object_status = current_green_status
+
+    # Check if any object has been absent for a certain number of frames
+    if any(red_object_status) and frames_since_last_detection_red >= absent_frames_threshold:
+            red_object_count += 1
+            frames_since_last_detection_red = 0
+
+    # If no object is present, increment the frame counter
+    if not any(red_object_status):
+            frames_since_last_detection_red += 1
+
+    # Check if any object has been absent for a certain number of frames
+    if any(green_object_status) and frames_since_last_detection_green >= absent_frames_threshold:
+            green_object_count += 1
+            timestamp = time.time() - start_time
+            timestamps.append(timestamp)
+            frames_since_last_detection_green = 0
+
+    # If no object is present, increment the frame counter
+    if not any(green_object_status):
+            frames_since_last_detection_green += 1
+
+
+    # Display the count of red objects
+    cv2.putText(frame, f'Red Objects: {red_object_count}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+    cv2.putText(frame, f'Green Objects: {green_object_count}', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+    # Display the frame
+    cv2.imshow('Frame', frame)
+
+    # Exit the loop if 'q' is pressed
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Release the webcam and close the window
+cap.release()
+cv2.destroyAllWindows()
+
+# Print out the array of timestamps
+print("Timestamps for Green:")
+for timestamp in timestamps:
+    print(timestamp)
+
+# Serialize array as JSON
+timestampJSON = json.dumps(timestamp)
+
+# Send final array to ESP-32
+serial_port.write(timestampJSON.encode())
+
+# End Connection
+serial.port.close()

@@ -1,0 +1,13 @@
+import cv2
+
+image = cv2.imread('green1.png')  # Replace 'your_image.jpg' with the path to your image
+
+hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+h_min, h_max, _, _ = cv2.minMaxLoc(hsv_image[:, :, 0])
+s_min, s_max, _, _ = cv2.minMaxLoc(hsv_image[:, :, 1])
+v_min, v_max, _, _ = cv2.minMaxLoc(hsv_image[:, :, 2])
+
+print("Hue range:", h_min, "-", h_max)
+print("Saturation range:", s_min, "-", s_max)
+print("Value range:", v_min, "-", v_max)

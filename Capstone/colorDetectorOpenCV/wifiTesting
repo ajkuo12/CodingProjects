@@ -1,0 +1,19 @@
+import socket
+
+host = '192.168.1.168'  # ESP32-CAM IP address
+port = 1234
+
+# Array of integers to send
+data_array = [1, 2, 4]
+
+# Establish a TCP/IP connection with the ESP32-CAM server
+client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client_socket.connect((host, port))
+
+# Send the array of integers to the ESP32-CAM
+for value in data_array:
+    client_socket.sendall(str(value).encode())
+    # Add a delimiter if desired, e.g., client_socket.sendall(','.encode())
+
+# Close the socket connection
+client_socket.close()
